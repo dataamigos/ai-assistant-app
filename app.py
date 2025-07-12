@@ -5,7 +5,7 @@
 # pip install google-cloud-aiplatform streamlit pyttsx3 speechrecognition pyaudio google-cloud-firestore
 
 import os
-import pyttsx3
+#import pyttsx3
 import streamlit as st
 import speech_recognition as sr
 from google.cloud import aiplatform, firestore
@@ -49,10 +49,10 @@ def listen():
             return "Error with the speech service."
 
 # === TEXT TO SPEECH === #
-def speak(text):
-    engine = pyttsx3.init()
-    engine.say(text)
-    engine.runAndWait()
+# def speak(text):
+#     engine = pyttsx3.init()
+#     engine.say(text)
+#     engine.runAndWait()
 
 # === REMINDER SAVING === #
 def save_reminder(date_str, text, type="manual"):
