@@ -1,165 +1,99 @@
-
-# Personal AI Assistant with Vertex AI, Firestore, GUI, and Voice Input (Final Version with Fixes)
-
-# Step 1: Install Required Libraries (run in terminal):
-# pip install google-cloud-aiplatform streamlit pyttsx3 speechrecognition pyaudio google-cloud-firestore
+# Updated app.py without voice and pyttsx3 modules for Streamlit Community Cloud deployment
 
 import os
-#import pyttsx3
 import streamlit as st
-import speech_recognition as sr
 from google.cloud import aiplatform, firestore
 from vertexai.generative_models import GenerativeModel
 from datetime import datetime, date
-import schedule
-import time
-import threading
-import re
-
-
+import pandas as pd
 
 # === CONFIGURATION === #
 PROJECT_ID = "hasini-gcp"
 LOCATION = "us-central1"
+MODEL_NAME = "gemini-2.5-flash"
 
-# === SETUP GOOGLE VERTEX AI === #
 def setup_vertex():
     aiplatform.init(project=PROJECT_ID, location=LOCATION)
 
+# === Vertex AI Gemini Function === #
 def send_to_gemini(prompt):
-    model = GenerativeModel("gemini-2.5-flash")
-    response = model.generate_content(prompt)
-    return response.text
+    model = GenerativeModel(MODEL_NAME)
+    responses = model.generate_content(prompt)
+    return responses.text
 
-# === SETUP FIRESTORE === #
+# === Firestore Setup === #
 firestore_client = firestore.Client()
-reminder_collection = firestore_client.collection("reminders_by_date")
+task_collection = firestore_client.collection("tasks")
 
-# === SPEECH TO TEXT === #
-def listen():
-    recognizer = sr.Recognizer()
-    with sr.Microphone() as source:
-        st.info("Listening...")
-        audio = recognizer.listen(source)
-        try:
-            return recognizer.recognize_google(audio)
-        except sr.UnknownValueError:
-            return "Sorry, I didn't catch that."
-        except sr.RequestError:
-            return "Error with the speech service."
-
-# === TEXT TO SPEECH === #
-# def speak(text):
-#     engine = pyttsx3.init()
-#     engine.say(text)
-#     engine.runAndWait()
-
-# === REMINDER SAVING === #
-def save_reminder(date_str, text, type="manual"):
-    doc_ref = reminder_collection.document(date_str)
-    doc = doc_ref.get()
-    new_reminder = {
-        "text": text,
-        "timestamp": datetime.utcnow(),
-        "type": type
+def add_task(description, due_date):
+    task = {
+        "description": description,
+        "due": due_date.strftime('%Y-%m-%d'),
+        "created": datetime.now()
     }
-    if doc.exists:
-        doc_ref.update({"reminders": firestore.ArrayUnion([new_reminder])})
-    else:
-        doc_ref.set({"reminders": [new_reminder]})
+    task_collection.add(task)
 
-# === RETRIEVE REMINDERS === #
-# def get_reminders_for_date(date_str):
-#     doc_ref = reminder_collection.document(date_str).get()
-#     if doc_ref.exists:
-#         return doc_ref.to_dict()["reminders"]
-#     return []
+def get_tasks():
+    tasks = task_collection.stream()
+    return [{"description": t.to_dict()["description"], "due": t.to_dict()["due"]} for t in tasks]
+
+def daily_summary():
+    today = datetime.now().strftime('%Y-%m-%d')
+    tasks_today = [t for t in get_tasks() if t["due"] == today]
+    if tasks_today:
+        return "Today you have the following tasks:\n" + "\n".join(["- " + t["description"] for t in tasks_today])
+    else:
+        return "You have no tasks scheduled for today."
 
 def get_reminders_for_date(query_dt):
-    doc_ref = firestore_client.collection("reminders_by_date").document(query_dt)
-    doc = doc_ref.get()
-    if doc.exists:
-        return doc.to_dict().get("reminders", [])
-    else:
-        return []
+    query_str = query_dt.strftime('%Y-%m-%d')
+    tasks = get_tasks()
+    return [t for t in tasks if t['due'] == query_str]
 
-def extract_date_from_input(user_input):
-    match = re.search(r"\d{4}-\d{2}-\d{2}", user_input)
-    return match.group(0) if match else None
-
-def get_all_reminders():
-    all_docs = reminder_collection.stream()
-    reminders = {}
-    for doc in all_docs:
-        reminders[doc.id] = doc.to_dict().get("reminders", [])
-    return dict(sorted(reminders.items()))
-
-# === DAILY SUMMARY === #
-def generate_daily_summary():
-    today = date.today().strftime("%Y-%m-%d")
-    reminders = get_reminders_for_date(today)
-    if reminders:
-        summary = f"Here are your tasks for today ({today}):\n"
-        for r in reminders:
-            summary += f"- {r['text']} ({r['type']})\n"
-        return summary.strip()
-    return "You have no reminders scheduled for today."
-
-# === STREAMLIT APP === #
+# === Streamlit GUI === #
 setup_vertex()
-st.title("🎙️ Smart Reminder Assistant")
+st.title("🧠 Personal AI Assistant")
+st.write("Manage tasks, see calendar summaries, and talk to Gemini AI!")
 
-# === Manual Entry === #
-st.header("📅 Manual Entry")
-manual_text = st.text_input("Enter your reminder:")
-manual_date = st.date_input("Select a date", value=date.today())
-if st.button("Save Reminder Manually"):
-    save_reminder(manual_date.strftime("%Y-%m-%d"), manual_text, "manual")
-    st.success("Reminder saved!")
-
-# === Voice Entry === #
-st.header("🎤 Voice Entry")
-voice_date = st.date_input("Select date for voice reminder", value=date.today(), key="voice_date")
-if st.button("Record Voice Reminder"):
-    voice_input = listen()
-    if voice_input:
-        save_reminder(voice_date.strftime("%Y-%m-%d"), voice_input, "voice")
-        st.success(f"Saved: {voice_input}")
-
-#Test button
-if st.button("Test Reminder Fetch"):
-    test_date = st.text_input("Enter date to test (YYYY-MM-DD)", value=datetime.today().strftime('%Y-%m-%d'))
-    reminders = get_reminders_for_date(test_date)
-    st.write("Reminders Found:", reminders)
-
-# === Ask Gemini === #
-user_date_input = st.text_input("Ask Gemini (e.g. What are my tasks on 2025-07-13?):")
-
-if st.button("Ask Gemini"):
-    query_date = extract_date_from_input(user_date_input)
-    if query_date:
-        reminders = get_reminders_for_date(query_date)
-        if reminders:
-            reminder_text = "\n".join([f"- {r['text']} ({r['type']})" for r in reminders])
-            prompt = f"For {query_date}, here are your reminders:\n{reminder_text}\nCan you summarize or organize them?"
-        else:
-            prompt = f"No reminders found for {query_date}."
-        response = send_to_gemini(prompt)
+# === Input === #
+user_input = st.text_input("What do you want to ask Gemini?")
+if st.button("Ask Gemini") and user_input:
+    with st.spinner("Thinking..."):
+        response = send_to_gemini(user_input)
         st.success(response)
+
+# === Show Tasks === #
+if st.button("📋 Show My Tasks"):
+    user_tasks = get_tasks()
+    if user_tasks:
+        df = pd.DataFrame(user_tasks)
+        df["due"] = pd.to_datetime(df["due"])
+        df = df.sort_values(by="due")
+        st.dataframe(df)
     else:
-        st.error("Could not find a valid date in your query.")
+        st.info("No tasks yet!")
 
+# === Add Task Manually === #
+with st.expander("➕ Add Task Manually"):
+    task_text = st.text_input("Task Description")
+    due_date = st.date_input("Due Date", date.today())
+    if st.button("Add Task") and task_text:
+        add_task(task_text, due_date)
+        st.success("Task added!")
 
-# === Daily Summary Button === #
+# === Daily Summary === #
 if st.button("📅 Daily Planner Summary"):
-    summary = generate_daily_summary()
+    summary = daily_summary()
     st.info(summary)
-    speak(summary)
 
-# === Show All Reminders === #
-if st.button("📂 Show All Reminders"):
-    all_reminders = get_all_reminders()
-    for dt, items in all_reminders.items():
-        st.markdown(f"### 📌 {dt}")
-        for r in items:
-            st.write(f"- {r['text']} ({r['type']})")
+# === Filter Tasks by Date === #
+with st.expander("🔍 View Tasks for a Specific Date"):
+    query_date = st.date_input("Select Date to View Tasks", date.today())
+    if st.button("Get Reminders"):
+        results = get_reminders_for_date(query_date)
+        if results:
+            st.write("Reminders:")
+            for r in results:
+                st.write(f"🔔 {r['description']} (Due: {r['due']})")
+        else:
+            st.warning("No reminders for this date.")
