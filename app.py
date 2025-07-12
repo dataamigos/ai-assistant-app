@@ -7,6 +7,16 @@ from vertexai.generative_models import GenerativeModel
 from datetime import datetime, date
 import pandas as pd
 
+import os
+import json
+
+gcp_credentials = st.secrets["gcp_key"]
+
+with open("gcp-key.json", "w") as f:
+    json.dump(dict(gcp_credentials), f)
+
+os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = "gcp-key.json"
+
 # === CONFIGURATION === #
 PROJECT_ID = "hasini-gcp"
 LOCATION = "us-central1"
