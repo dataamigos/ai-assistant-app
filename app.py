@@ -22,7 +22,10 @@ def send_to_gemini(prompt):
     return responses.text
 
 # === Firestore Setup === #
-firestore_client = firestore.Client()
+PROJECT_ID = os.getenv("GCP_PROJECT", "hasini-gcp")  # fallback to your project
+firestore_client = firestore.Client(project=PROJECT_ID)
+
+#firestore_client = firestore.Client()
 task_collection = firestore_client.collection("tasks")
 
 def add_task(description, due_date):
